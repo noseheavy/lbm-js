@@ -1,7 +1,9 @@
 body {
     background-color: black;
+    color: white;
 }
 
 #disp {
     background-color: white;
+    image-rendering: pixelated;
 }
