@@ -15,7 +15,7 @@ let scaleCell = 0.01;
 let dt = 0.01;
 
 // kinematic viscosity
-let nu = 1;
+let nu = 0.0025;
 
 // absolute reference density
 // all other densities relative (fractional) values
@@ -186,9 +186,10 @@ for (let i = 1; i < heightImg - 1; i ++) {
 
 // debug
 for (let dir = 0; dir < 9; dir ++) {
-    setP(10, 10, dir, getP(10, 10, dir) + 0.1);
+    setP(80, 80, dir, getP(10, 10, dir) + 0.2);
     console.log(getP(0, 1, dir));
 }
+console.log('tau: ' + tau);
 console.log('init');
 
 /* main */
@@ -221,7 +222,7 @@ function render() {
                     allP += getP(i, j, dir);
                 }
                 
-                let offsetC = 1000 * (allP - 1);
+                let offsetC = 30000 * (allP - 1);
                 img.data[4 * (widthImg * j + i)    ] = 200 + offsetC;
                 img.data[4 * (widthImg * j + i) + 1] = 200 + offsetC;
                 img.data[4 * (widthImg * j + i) + 2] = 200 + offsetC;
@@ -244,9 +245,29 @@ function render() {
         }
     }
     
+    // bring changes forward
+    swapP();
+    
     // collide
     for (let j = 1; j < heightImg - 1; j ++) {
         for (let i = 1; i < widthImg - 1; i ++) {
+            let uX   = 0;
+            let uY   = 0;
+            let allP = 0;
+            
+            for (let dir = 0; dir < 9; dir ++) {
+                uX += getP(i, j, dir) * getVelX(dir);
+                uY += getP(i, j, dir) * getVelY(dir);
+                allP += getP(i, j, dir);
+            }
+            
+            // bgk approx
+            for (let dir = 0; dir < 9; dir ++) {
+                setQ(
+                    i, j, dir,
+                    getP(i, j, dir) + (allP * getEq(dir, uX, uY) - getP(i, j, dir)) / tau
+                );
+            }
         }
     }
     
@@ -254,6 +275,7 @@ function render() {
     swapP();
     
     // apply boundaries
+    // todo: lid driven cavity validation
     for (let i = 0; i < widthImg; i ++) {
         applyNoSlip(i,             0);
         applyNoSlip(i, heightImg - 1);
@@ -264,8 +286,8 @@ function render() {
     }
     
     // wait for frame
-    // requestAnimationFrame(render);
-    setTimeout(render, 1000);
+    requestAnimationFrame(render);
+    // setTimeout(render, 1000);
 }
 
 // begin rendering
