@@ -32,7 +32,7 @@ let q = new Float32Array(9 * widthImg * heightImg);
 let swap = false;
 
 // velocity and weights for collision operator
-let w = new Float32Array([
+const w = new Float32Array([
      0,  0, 4 /  9,
      1,  0, 1 /  9,
      0,  1, 1 /  9,
@@ -58,6 +58,8 @@ function getW(i) {
 }
 
 // for density
+// p for current density
+// q for next
 function getP(x, y, i) {
     if (swap) {
         return q[9 * widthImg * y + 9 * x + i];
@@ -86,6 +88,9 @@ function setQ(x, y, i, val) {
         q[9 * widthImg * y + 9 * x + i] = val;
     }
 }
+function swapP() {
+    swap = !swap;
+}
 
 // equil density
 function getEq(i, uX, uY) {
@@ -94,6 +99,39 @@ function getEq(i, uX, uY) {
         4.5 * (getVelX(i) * uX + getVelY(i) * uY) * (getVelX(i) * uX + getVelY(i) * uY) -
         1.5 * (uX * uX + uY * uY)
     );
+}
+
+// boundaries
+function isWall(i, j) {
+    return getP(i, j, 0) < 0;
+}
+function getOppDir(dir) {
+    switch (dir) {
+        case 1: return 3;
+        case 2: return 4;
+        case 3: return 1;
+        case 4: return 2;
+        case 5: return 7;
+        case 6: return 8;
+        case 7: return 5;
+        case 8: return 6;
+    }
+}
+function applyNoSlip(i, j) {
+    // check through all non-wall neighbours and
+    // pull particles into center, flip vel
+    // particles effectively bounced at boundary
+    for (let dir = 1; dir < 9; dir ++) {
+        offsetX = getVelX(dir);
+        offsetY = getVelY(dir);
+        
+        if (i + offsetX > -1 && i + offsetX < widthImg &&
+            j + offsetY > -1 && j + offsetY < heightImg) {
+            if (!isWall(i + offsetX, j + offsetY)) {
+                setP(i, j, dir, getP(i + getVelX(dir), j + getVelY(dir), getOppDir(dir)));
+            }
+        }
+    }
 }
 
 /* init */
@@ -118,23 +156,37 @@ for (let j = 1; j < heightImg - 1; j ++) {
     }
 }
 
-// boundaries
-// todo: handle no-slip
+// mark boundaries
 for (let i = 0; i < widthImg; i ++) {
-    for (let dir = 0; dir < 9; dir ++) {
-        setP(i,             0, dir, -1);
-        setP(i, heightImg - 1, dir, -1);
-    }
+    // mark wall in current
+    setP(i,             0, 0, -1);
+    setP(i, heightImg - 1, 0, -1);
+    
+    // mark wall in next
+    setQ(i,             0, 0, -1);
+    setQ(i, heightImg - 1, 0, -1);
 }
 for (let i = 1; i < heightImg - 1; i ++) {
-    for (let dir = 0; dir < 9; dir ++) {
-        setP(           0, i, dir, -1);
-        setP(widthImg - 1, i, dir, -1);
-    }
+    setP(           0, i, 0, -1);
+    setP(widthImg - 1, i, 0, -1);
+    
+    setQ(           0, i, 0, -1);
+    setQ(widthImg - 1, i, 0, -1);
+}
+
+// apply boundaries
+for (let i = 0; i < widthImg; i ++) {
+    applyNoSlip(i,             0);
+    applyNoSlip(i, heightImg - 1);
+}
+for (let i = 1; i < heightImg - 1; i ++) {
+    applyNoSlip(           0, i);
+    applyNoSlip(widthImg - 1, i);
 }
 
 // debug
 for (let dir = 0; dir < 9; dir ++) {
+    setP(10, 10, dir, getP(10, 10, dir) + 0.1);
     console.log(getP(0, 1, dir));
 }
 console.log('init');
@@ -156,16 +208,26 @@ function render() {
             img.data[4 * (widthImg * j + i) + 2] = 255 * (0.5 + 0.5 * Math.sin(t * 0.8 + 2 * Math.PI / 3));
             
             img.data[4 * (widthImg * j + i) + 3] = 255; */
-            if (getP(i, j, 0) < 0) {
+            if (isWall(i, j)) {
                 img.data[4 * (widthImg * j + i)    ] = 155;
                 img.data[4 * (widthImg * j + i) + 1] = 155;
                 img.data[4 * (widthImg * j + i) + 2] = 155;
             } else {
-                img.data[4 * (widthImg * j + i)    ] = 255 * (0.5 + 0.5 * Math.sin(t));
+                /* img.data[4 * (widthImg * j + i)    ] = 255 * (0.5 + 0.5 * Math.sin(t));
                 img.data[4 * (widthImg * j + i) + 1] = 255 * (0.5 + 0.5 * Math.sin(t * 0.9 + 1 * Math.PI / 3));
-                img.data[4 * (widthImg * j + i) + 2] = 255 * (0.5 + 0.5 * Math.sin(t * 0.8 + 2 * Math.PI / 3));
+                img.data[4 * (widthImg * j + i) + 2] = 255 * (0.5 + 0.5 * Math.sin(t * 0.8 + 2 * Math.PI / 3)); */
+                let allP = 0;
+                for (let dir = 0; dir < 9; dir ++) {
+                    allP += getP(i, j, dir);
+                }
+                
+                let offsetC = 1000 * (allP - 1);
+                img.data[4 * (widthImg * j + i)    ] = 200 + offsetC;
+                img.data[4 * (widthImg * j + i) + 1] = 200 + offsetC;
+                img.data[4 * (widthImg * j + i) + 2] = 200 + offsetC;
             }
             
+            // set alpha
             img.data[4 * (widthImg * j + i) + 3] = 255;
         }
     }
@@ -174,6 +236,11 @@ function render() {
     // stream
     for (let j = 1; j < heightImg - 1; j ++) {
         for (let i = 1; i < widthImg - 1; i ++) {
+            // take all particles that should be streamed for this cell
+            for (let dir = 0; dir < 9; dir ++) {
+                // use micro vel to get offsets
+                setQ(i, j, dir, getP(i - getVelX(dir), j - getVelY(dir), dir));
+            }
         }
     }
     
@@ -183,10 +250,22 @@ function render() {
         }
     }
     
-    // todo: boundaries (before next stream...)
+    // bring changes forward
+    swapP();
+    
+    // apply boundaries
+    for (let i = 0; i < widthImg; i ++) {
+        applyNoSlip(i,             0);
+        applyNoSlip(i, heightImg - 1);
+    }
+    for (let i = 1; i < heightImg - 1; i ++) {
+        applyNoSlip(           0, i);
+        applyNoSlip(widthImg - 1, i);
+    }
     
     // wait for frame
-    requestAnimationFrame(render);
+    // requestAnimationFrame(render);
+    setTimeout(render, 1000);
 }
 
 // begin rendering
