@@ -7,15 +7,16 @@
 
 // lattice config
 // one pixel per cell
-let widthImg  = 150;
-let heightImg = 150;
-let scaleCell = 0.01;
+let widthImg  = 200;
+let heightImg = 200;
+let scaleCell = 0.5 * 1.2; // m
 
 // time step
-let dt = 0.01;
+// increase tau by decreasing scale and dt
+let dt = 1 / 1200 * 1.2; // s
 
 // kinematic viscosity
-let nu = 0.0025;
+let nu = 170;
 
 // absolute reference density
 // all other densities relative (fractional) values
@@ -93,7 +94,7 @@ function swapP() {
 }
 
 // equil density
-function getEq(i, uX, uY) {
+function getEq(i, uX, uY) { // micro vel
     return getW(i) * (
         1 + 3 * (getVelX(i) * uX + getVelY(i) * uY) +
         4.5 * (getVelX(i) * uX + getVelY(i) * uY) * (getVelX(i) * uX + getVelY(i) * uY) -
@@ -128,7 +129,30 @@ function applyNoSlip(i, j) {
         if (i + offsetX > -1 && i + offsetX < widthImg &&
             j + offsetY > -1 && j + offsetY < heightImg) {
             if (!isWall(i + offsetX, j + offsetY)) {
-                setP(i, j, dir, getP(i + getVelX(dir), j + getVelY(dir), getOppDir(dir)));
+                setP(i, j, dir, getP(i + offsetX, j + offsetY, getOppDir(dir)));
+            }
+        }
+    }
+}
+function applyVel(i, j, uX, uY) { // actual vel
+    // check through all non-wall neighbours and
+    // pull particles into center, flip non-eq vel and add
+    // particles also bounced at boundary
+    let cellX = uX / scaleCell;
+    let cellY = uY / scaleCell;
+    
+    for (let dir = 1; dir < 9; dir ++) {
+        offsetX = getVelX(dir);
+        offsetY = getVelY(dir);
+        
+        if (i + offsetX > -1 && i + offsetX < widthImg &&
+            j + offsetY > -1 && j + offsetY < heightImg) {
+            if (!isWall(i + offsetX, j + offsetY)) {
+                setP(
+                    i, j, dir,
+                    getP(i + offsetX, j + offsetY, getOppDir(dir)) - getEq(getOppDir(dir), cellX, cellY) +
+                    getEq(dir, cellX, cellY)
+                );
             }
         }
     }
@@ -157,7 +181,7 @@ for (let j = 1; j < heightImg - 1; j ++) {
 }
 
 // mark boundaries
-for (let i = 0; i < widthImg; i ++) {
+for (let i = 1; i < widthImg - 1; i ++) {
     // mark wall in current
     setP(i,             0, 0, -1);
     setP(i, heightImg - 1, 0, -1);
@@ -166,7 +190,7 @@ for (let i = 0; i < widthImg; i ++) {
     setQ(i,             0, 0, -1);
     setQ(i, heightImg - 1, 0, -1);
 }
-for (let i = 1; i < heightImg - 1; i ++) {
+for (let i = 0; i < heightImg; i ++) {
     setP(           0, i, 0, -1);
     setP(widthImg - 1, i, 0, -1);
     
@@ -175,21 +199,34 @@ for (let i = 1; i < heightImg - 1; i ++) {
 }
 
 // apply boundaries
-for (let i = 0; i < widthImg; i ++) {
-    applyNoSlip(i,             0);
+for (let i = 1; i < widthImg - 1; i ++) {
+    applyVel(i, 0, 0.000 * c, 0);
     applyNoSlip(i, heightImg - 1);
 }
-for (let i = 1; i < heightImg - 1; i ++) {
+for (let i = 0; i < heightImg; i ++) {
     applyNoSlip(           0, i);
     applyNoSlip(widthImg - 1, i);
 }
 
+// sim time
+let accumT = 0;
+
 // debug
-for (let dir = 0; dir < 9; dir ++) {
-    setP(80, 80, dir, getP(10, 10, dir) + 0.2);
+/* for (let dir = 0; dir < 9; dir ++) {
+    // setP(80, 80, dir, getP(10, 10, dir) + 0.2);
+    for (let i = 0; i < 30; i ++) {
+    for (let j = 0; j < 30; j ++) {
+    setP(70 + i, 70 + j, dir, getEq(dir, 0, 0.02));
+    }}
+    // console.log(getP(0, 1, dir));
     console.log(getP(0, 1, dir));
-}
+} */
 console.log('tau: ' + tau);
+console.log('c: ' + Math.round(c) + ' m s^-1');
+// console.log('t: ' + t0);
+console.log('width: ' + scaleCell * widthImg + ' m');
+console.log('max lid v: ' + 0.0003 * c + ' m s^-1');
+console.log('re: ' + scaleCell * widthImg * 0.0003 * c / nu);
 console.log('init');
 
 /* main */
@@ -198,6 +235,7 @@ console.log('init');
 function render() {
     // timing
     let t = Date.now() / 1000 - t0;
+    // console.log('t: ' + accumT);
 
     // render current field
     for (let j = 0; j < heightImg; j ++) {
@@ -210,22 +248,28 @@ function render() {
             
             img.data[4 * (widthImg * j + i) + 3] = 255; */
             if (isWall(i, j)) {
-                img.data[4 * (widthImg * j + i)    ] = 155;
-                img.data[4 * (widthImg * j + i) + 1] = 155;
-                img.data[4 * (widthImg * j + i) + 2] = 155;
+                img.data[4 * (widthImg * j + i)    ] = 255;
+                img.data[4 * (widthImg * j + i) + 1] = 0;
+                img.data[4 * (widthImg * j + i) + 2] = 0;
             } else {
                 /* img.data[4 * (widthImg * j + i)    ] = 255 * (0.5 + 0.5 * Math.sin(t));
                 img.data[4 * (widthImg * j + i) + 1] = 255 * (0.5 + 0.5 * Math.sin(t * 0.9 + 1 * Math.PI / 3));
                 img.data[4 * (widthImg * j + i) + 2] = 255 * (0.5 + 0.5 * Math.sin(t * 0.8 + 2 * Math.PI / 3)); */
+                let uX   = 0;
+                let uY   = 0;
                 let allP = 0;
+                
                 for (let dir = 0; dir < 9; dir ++) {
+                    uX += getP(i, j, dir) * getVelX(dir);
+                    uY += getP(i, j, dir) * getVelY(dir);
                     allP += getP(i, j, dir);
                 }
                 
-                let offsetC = 30000 * (allP - 1);
-                img.data[4 * (widthImg * j + i)    ] = 200 + offsetC;
-                img.data[4 * (widthImg * j + i) + 1] = 200 + offsetC;
-                img.data[4 * (widthImg * j + i) + 2] = 200 + offsetC;
+                // let offsetC = 5000 * (Math.sqrt(uY * uY + uX * uX));
+                let offsetC = 2500 * uX;
+                img.data[4 * (widthImg * j + i)    ] = 100 + offsetC;
+                img.data[4 * (widthImg * j + i) + 1] = 100 + offsetC;
+                img.data[4 * (widthImg * j + i) + 2] = 100 + offsetC;
             }
             
             // set alpha
@@ -240,7 +284,10 @@ function render() {
             // take all particles that should be streamed for this cell
             for (let dir = 0; dir < 9; dir ++) {
                 // use micro vel to get offsets
-                setQ(i, j, dir, getP(i - getVelX(dir), j - getVelY(dir), dir));
+                setQ(
+                    i, j, dir,
+                    getP(i - getVelX(dir), j - getVelY(dir), dir)
+                );
             }
         }
     }
@@ -261,6 +308,9 @@ function render() {
                 allP += getP(i, j, dir);
             }
             
+            // temp stability aid
+            allP = Math.max(Math.min(allP, 1.02), 0.98);
+            
             // bgk approx
             for (let dir = 0; dir < 9; dir ++) {
                 setQ(
@@ -275,15 +325,17 @@ function render() {
     swapP();
     
     // apply boundaries
-    // todo: lid driven cavity validation
-    for (let i = 0; i < widthImg; i ++) {
-        applyNoSlip(i,             0);
+    for (let i = 1; i < widthImg - 1; i ++) {
+        applyVel(i, 0, 0.0003 * Math.tanh(accumT) * c, 0);
         applyNoSlip(i, heightImg - 1);
     }
-    for (let i = 1; i < heightImg - 1; i ++) {
+    for (let i = 0; i < heightImg; i ++) {
         applyNoSlip(           0, i);
         applyNoSlip(widthImg - 1, i);
     }
+    
+    accumT += dt;
+    // console.log('lid v: ' + 0.0003 * Math.tanh(accumT) * c + ' m s^-1');
     
     // wait for frame
     requestAnimationFrame(render);
