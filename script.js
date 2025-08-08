@@ -7,20 +7,21 @@
 
 // lattice config
 // one pixel per cell
-let widthImg  = 200;
-let heightImg = 200;
-let scaleCell = 0.5 * 1.2; // m
+let widthImg  = 100; // dx
+let heightImg = 100; // dx
+let scaleCell = 0.1; // m
 
 // time step
-// increase tau by decreasing scale and dt
-let dt = 1 / 1200 * 1.2; // s
+let dt = 0.002; // s
 
 // kinematic viscosity
-let nu = 170;
+let nu = 0.0003 // dx^2 dt^-1
 
 // absolute reference density
 // all other densities relative (fractional) values
-let rho = 1;
+let rho = 1; // kg m^-3
+
+let windVel = 0.0005; // mach
 
 // norm particle density, relative to ref density
 // 9 directions:
@@ -94,7 +95,7 @@ function swapP() {
 }
 
 // equil density
-function getEq(i, uX, uY) { // micro vel
+function getEq(i, uX, uY) { // dx dt^-1, div by c included in consts
     return getW(i) * (
         1 + 3 * (getVelX(i) * uX + getVelY(i) * uY) +
         4.5 * (getVelX(i) * uX + getVelY(i) * uY) * (getVelX(i) * uX + getVelY(i) * uY) -
@@ -134,12 +135,12 @@ function applyNoSlip(i, j) {
         }
     }
 }
-function applyVel(i, j, uX, uY) { // actual vel
+function applyVel(i, j, uX, uY) { // m s^-1
     // check through all non-wall neighbours and
     // pull particles into center, flip non-eq vel and add
     // particles also bounced at boundary
-    let cellX = uX / scaleCell;
-    let cellY = uY / scaleCell;
+    let cellX = uX / scaleCell * dt;
+    let cellY = uY / scaleCell * dt;
     
     for (let dir = 1; dir < 9; dir ++) {
         offsetX = getVelX(dir);
@@ -161,15 +162,14 @@ function applyVel(i, j, uX, uY) { // actual vel
 /* init */
 
 // calculate speed of sound w lattice config, tau w kinematic viscosity
-let c   = scaleCell / dt / Math.sqrt(3); // notice not just scale divided by time
+const c     = 1 / Math.sqrt(3);   // dx dt^-1, always same for lbm
+const realC = scaleCell / dt * c; // m s^-1, notice not just scale divided by time
 let tau = nu / (c * c * dt) + 0.5;
 
 // setup context and image for display
 let disp = document.getElementById('disp');
 let ctx  = disp.getContext('2d');
 let img  = ctx.createImageData(widthImg, heightImg);
-
-let t0 = Date.now() / 1000;
 
 // lattice
 for (let j = 1; j < heightImg - 1; j ++) {
@@ -200,7 +200,7 @@ for (let i = 0; i < heightImg; i ++) {
 
 // apply boundaries
 for (let i = 1; i < widthImg - 1; i ++) {
-    applyVel(i, 0, 0.000 * c, 0);
+    applyVel(i, 0, 0, 0);
     applyNoSlip(i, heightImg - 1);
 }
 for (let i = 0; i < heightImg; i ++) {
@@ -210,6 +210,7 @@ for (let i = 0; i < heightImg; i ++) {
 
 // sim time
 let accumT = 0;
+let t0 = Date.now() / 1000;
 
 // debug
 /* for (let dir = 0; dir < 9; dir ++) {
@@ -221,12 +222,12 @@ let accumT = 0;
     // console.log(getP(0, 1, dir));
     console.log(getP(0, 1, dir));
 } */
-console.log('tau: ' + tau);
-console.log('c: ' + Math.round(c) + ' m s^-1');
-// console.log('t: ' + t0);
 console.log('width: ' + scaleCell * widthImg + ' m');
-console.log('max lid v: ' + 0.0003 * c + ' m s^-1');
-console.log('re: ' + scaleCell * widthImg * 0.0003 * c / nu);
+console.log('c: ' + Math.round(10 * realC) / 10 + ' m s^-1');
+console.log('re: ' + widthImg * (windVel * c) / nu);
+console.log('tau: ' + tau);
+// console.log('t: ' + t0);
+console.log('max lid v: ' + windVel * realC + ' m s^-1');
 console.log('init');
 
 /* main */
@@ -265,11 +266,12 @@ function render() {
                     allP += getP(i, j, dir);
                 }
                 
-                // let offsetC = 5000 * (Math.sqrt(uY * uY + uX * uX));
-                let offsetC = 2500 * uX;
-                img.data[4 * (widthImg * j + i)    ] = 100 + offsetC;
-                img.data[4 * (widthImg * j + i) + 1] = 100 + offsetC;
-                img.data[4 * (widthImg * j + i) + 2] = 100 + offsetC;
+                let offsetC = 127.5 * Math.sqrt(uY * uY + uX * uX) / (windVel * c / scaleCell * dt);
+                // let offsetC = 127.5 * uX / (windVel * c / scaleCell * dt);
+                // let offsetC = 127.5 * 20000 * (allP - 1);
+                img.data[4 * (widthImg * j + i)    ] = 127.5 + offsetC;
+                img.data[4 * (widthImg * j + i) + 1] = 127.5 + offsetC;
+                img.data[4 * (widthImg * j + i) + 2] = 127.5 + offsetC;
             }
             
             // set alpha
@@ -278,6 +280,7 @@ function render() {
     }
     ctx.putImageData(img, 0, 0);
     
+    for (let rep = 0; rep < 5; rep ++) {
     // stream
     for (let j = 1; j < heightImg - 1; j ++) {
         for (let i = 1; i < widthImg - 1; i ++) {
@@ -309,13 +312,15 @@ function render() {
             }
             
             // temp stability aid
-            allP = Math.max(Math.min(allP, 1.02), 0.98);
+            let scaleP = Math.max(Math.min(allP, 2), 0) / allP;
+            allP = scaleP * allP;
             
             // bgk approx
             for (let dir = 0; dir < 9; dir ++) {
                 setQ(
                     i, j, dir,
-                    getP(i, j, dir) + (allP * getEq(dir, uX, uY) - getP(i, j, dir)) / tau
+                    scaleP * getP(i, j, dir) + 
+                    (allP * getEq(dir, uX, uY) - scaleP * getP(i, j, dir)) / tau
                 );
             }
         }
@@ -326,7 +331,7 @@ function render() {
     
     // apply boundaries
     for (let i = 1; i < widthImg - 1; i ++) {
-        applyVel(i, 0, 0.0003 * Math.tanh(accumT) * c, 0);
+        applyVel(i, 0, windVel * Math.tanh(accumT) * c, 0);
         applyNoSlip(i, heightImg - 1);
     }
     for (let i = 0; i < heightImg; i ++) {
@@ -336,6 +341,7 @@ function render() {
     
     accumT += dt;
     // console.log('lid v: ' + 0.0003 * Math.tanh(accumT) * c + ' m s^-1');
+    } // rep
     
     // wait for frame
     requestAnimationFrame(render);
