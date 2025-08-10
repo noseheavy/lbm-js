@@ -7,30 +7,36 @@
 
 // lattice config
 // one pixel per cell
-let widthImg  = 100; // dx
-let heightImg = 100; // dx
-let scaleCell = 0.1; // m
+let widthImg  = 200; // dx
+let heightImg = 200; // dx
+let scaleGrid = 1;   // m
+
+// auto
+let scaleCell = scaleGrid / widthImg; // m
 
 // time step
-let dt = 0.002; // s
+let deltaT = 0.0029; // s, increasing lowers c
 
 // kinematic viscosity
-let nu = 0.0003 // dx^2 dt^-1
+let nu = 0.000299;   // m^2 s^-1
 
 // absolute reference density
 // all other densities relative (fractional) values
-let rho = 1; // kg m^-3
+let rho = 1;         // kg m^-3
 
-let windVel = 0.0005; // mach
+let windVel = 0.3;   // mach
+let deltaF  = 0.1;   // max deviation from 1
+let stabView = false;
+let fullView = true;
 
-// norm particle density, relative to ref density
+// relative particle density (relative to ref density)
 // 9 directions:
 // 6 2 5
 // 3 0 1
 // 7 4 8
 // two sets for swapping
-let p = new Float32Array(9 * widthImg * heightImg);
-let q = new Float32Array(9 * widthImg * heightImg);
+let f = new Float32Array(9 * widthImg * heightImg); // r
+let g = new Float32Array(9 * widthImg * heightImg); // r
 let swap = false;
 
 // velocity and weights for collision operator
@@ -60,42 +66,42 @@ function getW(i) {
 }
 
 // for density
-// p for current density
-// q for next
-function getP(x, y, i) {
+// f for current density
+// g for next
+function getF(x, y, i) {
     if (swap) {
-        return q[9 * widthImg * y + 9 * x + i];
+        return g[9 * widthImg * y + 9 * x + i];
     } else {
-        return p[9 * widthImg * y + 9 * x + i];
+        return f[9 * widthImg * y + 9 * x + i];
     }
 }
-function getQ(x, y, i) {
+function getG(x, y, i) {
     if (swap) {
-        return p[9 * widthImg * y + 9 * x + i];
+        return f[9 * widthImg * y + 9 * x + i];
     } else {
-        return q[9 * widthImg * y + 9 * x + i];
+        return g[9 * widthImg * y + 9 * x + i];
     }
 }
-function setP(x, y, i, val) {
+function setF(x, y, i, val) {
     if (swap) {
-        q[9 * widthImg * y + 9 * x + i] = val;
+        g[9 * widthImg * y + 9 * x + i] = val;
     } else {
-        p[9 * widthImg * y + 9 * x + i] = val;
+        f[9 * widthImg * y + 9 * x + i] = val;
     }
 }
-function setQ(x, y, i, val) {
+function setG(x, y, i, val) {
     if (swap) {
-        p[9 * widthImg * y + 9 * x + i] = val;
+        f[9 * widthImg * y + 9 * x + i] = val;
     } else {
-        q[9 * widthImg * y + 9 * x + i] = val;
+        g[9 * widthImg * y + 9 * x + i] = val;
     }
 }
-function swapP() {
+function swapF() {
     swap = !swap;
 }
 
 // equil density
-function getEq(i, uX, uY) { // dx dt^-1, div by c included in consts
+function getEq(i, uX, uY) { // u in dx dt^-1, all div by c included in consts
     return getW(i) * (
         1 + 3 * (getVelX(i) * uX + getVelY(i) * uY) +
         4.5 * (getVelX(i) * uX + getVelY(i) * uY) * (getVelX(i) * uX + getVelY(i) * uY) -
@@ -105,7 +111,7 @@ function getEq(i, uX, uY) { // dx dt^-1, div by c included in consts
 
 // boundaries
 function isWall(i, j) {
-    return getP(i, j, 0) < 0;
+    return getF(i, j, 0) < 0;
 }
 function getOppDir(dir) {
     switch (dir) {
@@ -130,7 +136,7 @@ function applyNoSlip(i, j) {
         if (i + offsetX > -1 && i + offsetX < widthImg &&
             j + offsetY > -1 && j + offsetY < heightImg) {
             if (!isWall(i + offsetX, j + offsetY)) {
-                setP(i, j, dir, getP(i + offsetX, j + offsetY, getOppDir(dir)));
+                setF(i, j, dir, getF(i + offsetX, j + offsetY, getOppDir(dir)));
             }
         }
     }
@@ -139,8 +145,8 @@ function applyVel(i, j, uX, uY) { // m s^-1
     // check through all non-wall neighbours and
     // pull particles into center, flip non-eq vel and add
     // particles also bounced at boundary
-    let cellX = uX / scaleCell * dt;
-    let cellY = uY / scaleCell * dt;
+    let cellX = uX / scaleCell * deltaT;
+    let cellY = uY / scaleCell * deltaT;
     
     for (let dir = 1; dir < 9; dir ++) {
         offsetX = getVelX(dir);
@@ -149,9 +155,9 @@ function applyVel(i, j, uX, uY) { // m s^-1
         if (i + offsetX > -1 && i + offsetX < widthImg &&
             j + offsetY > -1 && j + offsetY < heightImg) {
             if (!isWall(i + offsetX, j + offsetY)) {
-                setP(
+                setF(
                     i, j, dir,
-                    getP(i + offsetX, j + offsetY, getOppDir(dir)) - getEq(getOppDir(dir), cellX, cellY) +
+                    getF(i + offsetX, j + offsetY, getOppDir(dir)) - getEq(getOppDir(dir), cellX, cellY) +
                     getEq(dir, cellX, cellY)
                 );
             }
@@ -159,12 +165,46 @@ function applyVel(i, j, uX, uY) { // m s^-1
     }
 }
 
+function toRGB(a) {
+    a = 1 - Math.min(1, Math.max(0, a));
+
+    let r = 0;
+    if (a < 0.25) {
+        r = 255;
+    } else if (a < 0.5) {
+        r = 1 - (a - 0.25) * 4;
+        r *= 255;
+    }
+    
+    let gr = 0;
+    if (a < 0.25) {
+        gr = a * 4;
+        gr *= 255;
+    } else if (a < 0.75) {
+        gr = 255;
+    } else {
+        gr = 1 - (a - 0.75) * 4;
+        gr *= 255;
+    }
+    
+    let b = 0;
+    if (a > 0.75) {
+        b = 255;
+    } else if (a > 0.5) {
+        b = (a - 0.5) * 4;
+        b *= 255;
+    }
+    
+    return [r, gr, b];
+}
+
 /* init */
 
 // calculate speed of sound w lattice config, tau w kinematic viscosity
-const c     = 1 / Math.sqrt(3);   // dx dt^-1, always same for lbm
-const realC = scaleCell / dt * c; // m s^-1, notice not just scale divided by time
-let tau = nu / (c * c * dt) + 0.5;
+const c     = 1 / Math.sqrt(3);                    // dx dt^-1, always same for lbm
+const realC = scaleCell / deltaT * c;              // m s^-1, notice not just scale divided by time
+let tau     = nu / (realC * realC * deltaT) + 0.5; // no units
+let invTau  = 1 / tau;
 
 // setup context and image for display
 let disp = document.getElementById('disp');
@@ -175,7 +215,7 @@ let img  = ctx.createImageData(widthImg, heightImg);
 for (let j = 1; j < heightImg - 1; j ++) {
     for (let i = 1; i < widthImg - 1; i ++) {
         for (let dir = 0; dir < 9; dir ++) {
-            setP(i, j, dir, getEq(dir, 0, 0)); // assume all points at equilibrium
+            setF(i, j, dir, getEq(dir, 0, 0)); // assume all points at equilibrium
         }
     }
 }
@@ -183,19 +223,19 @@ for (let j = 1; j < heightImg - 1; j ++) {
 // mark boundaries
 for (let i = 1; i < widthImg - 1; i ++) {
     // mark wall in current
-    setP(i,             0, 0, -1);
-    setP(i, heightImg - 1, 0, -1);
+    setF(i,             0, 0, -1);
+    setF(i, heightImg - 1, 0, -1);
     
     // mark wall in next
-    setQ(i,             0, 0, -1);
-    setQ(i, heightImg - 1, 0, -1);
+    setG(i,             0, 0, -1);
+    setG(i, heightImg - 1, 0, -1);
 }
 for (let i = 0; i < heightImg; i ++) {
-    setP(           0, i, 0, -1);
-    setP(widthImg - 1, i, 0, -1);
+    setF(           0, i, 0, -1);
+    setF(widthImg - 1, i, 0, -1);
     
-    setQ(           0, i, 0, -1);
-    setQ(widthImg - 1, i, 0, -1);
+    setG(           0, i, 0, -1);
+    setG(widthImg - 1, i, 0, -1);
 }
 
 // apply boundaries
@@ -209,10 +249,16 @@ for (let i = 0; i < heightImg; i ++) {
 }
 
 // sim time
-let accumT = 0;
-let t0 = Date.now() / 1000;
+let accumT = 0;             // s
+let t0 = Date.now() * 0.001; // real time
+let tPrev = t0;
+
+let maxUPrev = 0.001;
 
 // debug
+/*for (let dir = 0; dir < 9; dir ++) {
+setF(35, 35, dir, getEq(dir, 0.01, 0));
+}*/
 /* for (let dir = 0; dir < 9; dir ++) {
     // setP(80, 80, dir, getP(10, 10, dir) + 0.2);
     for (let i = 0; i < 30; i ++) {
@@ -223,8 +269,9 @@ let t0 = Date.now() / 1000;
     console.log(getP(0, 1, dir));
 } */
 console.log('width: ' + scaleCell * widthImg + ' m');
-console.log('c: ' + Math.round(10 * realC) / 10 + ' m s^-1');
-console.log('re: ' + widthImg * (windVel * c) / nu);
+console.log('c: ' + Math.round(100 * realC) / 100 + ' m s^-1');
+console.log('re: ' + widthImg * (windVel * c) / (nu / scaleCell / scaleCell * deltaT));
+// console.log('re: ' + widthImg * (windVel * c) / ((tau - 0.5) * c * c));
 console.log('tau: ' + tau);
 // console.log('t: ' + t0);
 console.log('max lid v: ' + windVel * realC + ' m s^-1');
@@ -235,113 +282,144 @@ console.log('init');
 // sim loop
 function render() {
     // timing
-    let t = Date.now() / 1000 - t0;
-    // console.log('t: ' + accumT);
+    let t = (Date.now() * 0.001) - t0;
+    if (t - tPrev > 1 / 30) {
+        console.log('t: ' + accumT);
+    }
+    tPrev = t;
 
     // render current field
+    let maxU = 0.001;
     for (let j = 0; j < heightImg; j ++) {
         for (let i = 0; i < widthImg; i ++) {
             // stored left to right, then top to bottom
             // 4 channels: r, g, b, a
-            /* img.data[4 * (widthImg * j + i)    ] = 255 * (0.5 + 0.5 * Math.sin(t));
-            img.data[4 * (widthImg * j + i) + 1] = 255 * (0.5 + 0.5 * Math.sin(t * 0.9 + 1 * Math.PI / 3));
-            img.data[4 * (widthImg * j + i) + 2] = 255 * (0.5 + 0.5 * Math.sin(t * 0.8 + 2 * Math.PI / 3));
-            
-            img.data[4 * (widthImg * j + i) + 3] = 255; */
             if (isWall(i, j)) {
-                img.data[4 * (widthImg * j + i)    ] = 255;
-                img.data[4 * (widthImg * j + i) + 1] = 0;
-                img.data[4 * (widthImg * j + i) + 2] = 0;
+                if (stabView) {
+                    img.data[4 * (widthImg * j + i)    ] = 255;
+                    img.data[4 * (widthImg * j + i) + 1] = 0;
+                    img.data[4 * (widthImg * j + i) + 2] = 0;
+                } else {
+                    img.data[4 * (widthImg * j + i)    ] = 255;
+                    img.data[4 * (widthImg * j + i) + 1] = 255;
+                    img.data[4 * (widthImg * j + i) + 2] = 255;
+                }
+                /* if (i == 0) {
+                    let col = toRGB(1 - j / (heightImg - 1));
+                    img.data[4 * (widthImg * j + i)    ] = col[0];
+                    img.data[4 * (widthImg * j + i) + 1] = col[1];
+                    img.data[4 * (widthImg * j + i) + 2] = col[2];
+                } */
             } else {
-                /* img.data[4 * (widthImg * j + i)    ] = 255 * (0.5 + 0.5 * Math.sin(t));
-                img.data[4 * (widthImg * j + i) + 1] = 255 * (0.5 + 0.5 * Math.sin(t * 0.9 + 1 * Math.PI / 3));
-                img.data[4 * (widthImg * j + i) + 2] = 255 * (0.5 + 0.5 * Math.sin(t * 0.8 + 2 * Math.PI / 3)); */
                 let uX   = 0;
                 let uY   = 0;
                 let allP = 0;
                 
                 for (let dir = 0; dir < 9; dir ++) {
-                    uX += getP(i, j, dir) * getVelX(dir);
-                    uY += getP(i, j, dir) * getVelY(dir);
-                    allP += getP(i, j, dir);
+                    uX += getF(i, j, dir) * getVelX(dir);
+                    uY += getF(i, j, dir) * getVelY(dir);
+                    allP += getF(i, j, dir);
                 }
                 
-                let offsetC = 127.5 * Math.sqrt(uY * uY + uX * uX) / (windVel * c / scaleCell * dt);
-                // let offsetC = 127.5 * uX / (windVel * c / scaleCell * dt);
-                // let offsetC = 127.5 * 20000 * (allP - 1);
-                img.data[4 * (widthImg * j + i)    ] = 127.5 + offsetC;
-                img.data[4 * (widthImg * j + i) + 1] = 127.5 + offsetC;
-                img.data[4 * (widthImg * j + i) + 2] = 127.5 + offsetC;
+                if (stabView) {
+                    let offsetC = 127.5 * (allP - 1) / deltaF;
+                    img.data[4 * (widthImg * j + i)    ] = 127.5 + offsetC;
+                    img.data[4 * (widthImg * j + i) + 1] = 127.5 + offsetC;
+                    img.data[4 * (widthImg * j + i) + 2] = 127.5 + offsetC;
+                } else {
+                    let a = Math.sqrt(uY * uY + uX * uX);
+                    
+                    if (fullView) {
+                        if (a > maxU) {
+                            maxU = a;
+                        }
+                        
+                        a /= maxUPrev;
+                    } else {
+                        a /= windVel * c;
+                    }
+                    
+                    let col = toRGB(a);
+                    img.data[4 * (widthImg * j + i)    ] = col[0];
+                    img.data[4 * (widthImg * j + i) + 1] = col[1];
+                    img.data[4 * (widthImg * j + i) + 2] = col[2];
+                }
             }
             
             // set alpha
             img.data[4 * (widthImg * j + i) + 3] = 255;
         }
     }
+    if (fullView && !stabView) {
+        maxUPrev = maxU;
+    }
     ctx.putImageData(img, 0, 0);
     
-    for (let rep = 0; rep < 5; rep ++) {
-    // stream
-    for (let j = 1; j < heightImg - 1; j ++) {
-        for (let i = 1; i < widthImg - 1; i ++) {
-            // take all particles that should be streamed for this cell
-            for (let dir = 0; dir < 9; dir ++) {
-                // use micro vel to get offsets
-                setQ(
-                    i, j, dir,
-                    getP(i - getVelX(dir), j - getVelY(dir), dir)
-                );
+    for (let rep = 0; rep < 1; rep ++) {
+        // stream
+        for (let j = 1; j < heightImg - 1; j ++) {
+            for (let i = 1; i < widthImg - 1; i ++) {
+                // take all particles that should be streamed for this cell
+                for (let dir = 0; dir < 9; dir ++) {
+                    // use micro vel to get offsets
+                    setG(
+                        i, j, dir,
+                        getF(i - getVelX(dir), j - getVelY(dir), dir)
+                    );
+                }
             }
         }
-    }
-    
-    // bring changes forward
-    swapP();
-    
-    // collide
-    for (let j = 1; j < heightImg - 1; j ++) {
-        for (let i = 1; i < widthImg - 1; i ++) {
-            let uX   = 0;
-            let uY   = 0;
-            let allP = 0;
-            
-            for (let dir = 0; dir < 9; dir ++) {
-                uX += getP(i, j, dir) * getVelX(dir);
-                uY += getP(i, j, dir) * getVelY(dir);
-                allP += getP(i, j, dir);
-            }
-            
-            // temp stability aid
-            let scaleP = Math.max(Math.min(allP, 2), 0) / allP;
-            allP = scaleP * allP;
-            
-            // bgk approx
-            for (let dir = 0; dir < 9; dir ++) {
-                setQ(
-                    i, j, dir,
-                    scaleP * getP(i, j, dir) + 
-                    (allP * getEq(dir, uX, uY) - scaleP * getP(i, j, dir)) / tau
-                );
+        
+        // bring changes forward
+        swapF();
+        
+        // collide
+        for (let j = 1; j < heightImg - 1; j ++) {
+            for (let i = 1; i < widthImg - 1; i ++) {
+                let uX   = 0;
+                let uY   = 0;
+                let allP = 0;
+                
+                for (let dir = 0; dir < 9; dir ++) {
+                    uX   += getF(i, j, dir) * getVelX(dir);
+                    uY   += getF(i, j, dir) * getVelY(dir);
+                    allP += getF(i, j, dir);
+                }
+                
+                // r dx dt^-1 -> dx dt^-1
+                uX /= allP;
+                uY /= allP;
+                
+                // temp stability aid
+                let scaleP = Math.max(Math.min(allP, 1 + deltaF), 1 - deltaF) / allP;
+                
+                // bgk approx
+                for (let dir = 0; dir < 9; dir ++) {
+                    setG(
+                        i, j, dir,
+                        scaleP * (
+                            getF(i, j, dir) + (allP * getEq(dir, uX, uY) - getF(i, j, dir)) * invTau
+                        )
+                    );
+                }
             }
         }
+        
+        // bring changes forward
+        swapF();
+        
+        // apply boundaries
+        for (let i = 1; i < widthImg - 1; i ++) {
+            applyVel(i, 0, windVel * realC, 0); // Math.tanh(accumT) * 
+            applyNoSlip(i, heightImg - 1);
+        }
+        for (let i = 0; i < heightImg; i ++) {
+            applyNoSlip(           0, i);
+            applyNoSlip(widthImg - 1, i);
+        }
+        
+        accumT += deltaT;
     }
-    
-    // bring changes forward
-    swapP();
-    
-    // apply boundaries
-    for (let i = 1; i < widthImg - 1; i ++) {
-        applyVel(i, 0, windVel * Math.tanh(accumT) * c, 0);
-        applyNoSlip(i, heightImg - 1);
-    }
-    for (let i = 0; i < heightImg; i ++) {
-        applyNoSlip(           0, i);
-        applyNoSlip(widthImg - 1, i);
-    }
-    
-    accumT += dt;
-    // console.log('lid v: ' + 0.0003 * Math.tanh(accumT) * c + ' m s^-1');
-    } // rep
     
     // wait for frame
     requestAnimationFrame(render);
