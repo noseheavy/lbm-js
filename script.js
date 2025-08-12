@@ -369,6 +369,7 @@ function render() {
                         getF(i - getVelX(dir), j - getVelY(dir), dir)
                     );
                 }
+                setG(i, j, 0, getF(i, j, 0)); // not to forget
             }
         }
         
