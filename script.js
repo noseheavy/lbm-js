@@ -30,7 +30,7 @@ let stabView = false;
 let fullView = true;
 
 // relative particle density (relative to ref density)
-// 9 directions:
+// 9 directions (img coord system upside down):
 // 6 2 5
 // 3 0 1
 // 7 4 8
@@ -39,7 +39,7 @@ let f = new Float32Array(9 * widthImg * heightImg); // r
 let g = new Float32Array(9 * widthImg * heightImg); // r
 let swap = false;
 
-// velocity and weights for collision operator
+// cell velocity and weights for collision operator
 const w = new Float32Array([
      0,  0, 4 /  9,
      1,  0, 1 /  9,
@@ -100,7 +100,7 @@ function swapF() {
     swap = !swap;
 }
 
-// equil density
+// equil density, no units
 function getEq(i, uX, uY) { // u in dx dt^-1, all div by c included in consts
     return getW(i) * (
         1 + 3 * (getVelX(i) * uX + getVelY(i) * uY) +
@@ -141,7 +141,7 @@ function applyNoSlip(i, j) {
         }
     }
 }
-function applyVel(i, j, uX, uY) { // m s^-1
+function applyVel(i, j, uX, uY) { // m s^-1, f implied to be unitary
     // check through all non-wall neighbours and
     // pull particles into center, flip non-eq vel and add
     // particles also bounced at boundary
@@ -249,11 +249,11 @@ for (let i = 0; i < heightImg; i ++) {
 }
 
 // sim time
-let accumT = 0;             // s
+let accumT = 0;              // s
 let t0 = Date.now() * 0.001; // real time
 let tPrev = t0;
 
-let maxUPrev = 0.001;
+let maxUPrev = 0.000001;
 
 // debug
 /*for (let dir = 0; dir < 9; dir ++) {
@@ -270,12 +270,13 @@ setF(35, 35, dir, getEq(dir, 0.01, 0));
 } */
 console.log('width: ' + scaleCell * widthImg + ' m');
 console.log('c: ' + Math.round(100 * realC) / 100 + ' m s^-1');
-console.log('re: ' + widthImg * (windVel * c) / (nu / scaleCell / scaleCell * deltaT));
+console.log('re: ' + scaleGrid * (windVel * realC) / nu);
+// console.log('re: ' + widthImg * (windVel * c) / (nu / scaleCell / scaleCell * deltaT));
 // console.log('re: ' + widthImg * (windVel * c) / ((tau - 0.5) * c * c));
 console.log('tau: ' + tau);
 // console.log('t: ' + t0);
 console.log('max lid v: ' + windVel * realC + ' m s^-1');
-console.log('init');
+// console.log('init');
 
 /* main */
 
@@ -289,7 +290,7 @@ function render() {
     tPrev = t;
 
     // render current field
-    let maxU = 0.001;
+    let maxU = 0.000001;
     for (let j = 0; j < heightImg; j ++) {
         for (let i = 0; i < widthImg; i ++) {
             // stored left to right, then top to bottom
@@ -313,21 +314,22 @@ function render() {
             } else {
                 let uX   = 0;
                 let uY   = 0;
-                let allP = 0;
+                let allF = 0;
                 
                 for (let dir = 0; dir < 9; dir ++) {
-                    uX += getF(i, j, dir) * getVelX(dir);
-                    uY += getF(i, j, dir) * getVelY(dir);
-                    allP += getF(i, j, dir);
+                    uX   += getF(i, j, dir) * getVelX(dir);
+                    uY   += getF(i, j, dir) * getVelY(dir);
+                    allF += getF(i, j, dir);
                 }
                 
                 if (stabView) {
-                    let offsetC = 127.5 * (allP - 1) / deltaF;
+                    let offsetC = 127.5 * (allF - 1) / deltaF;
                     img.data[4 * (widthImg * j + i)    ] = 127.5 + offsetC;
                     img.data[4 * (widthImg * j + i) + 1] = 127.5 + offsetC;
                     img.data[4 * (widthImg * j + i) + 2] = 127.5 + offsetC;
                 } else {
                     let a = Math.sqrt(uY * uY + uX * uX);
+                    // a /= allF; (allF ~= 1, skip)
                     
                     if (fullView) {
                         if (a > maxU) {
@@ -359,8 +361,8 @@ function render() {
         // stream
         for (let j = 1; j < heightImg - 1; j ++) {
             for (let i = 1; i < widthImg - 1; i ++) {
-                // take all particles that should be streamed for this cell
-                for (let dir = 0; dir < 9; dir ++) {
+                // take all particles that should be streamed into this cell
+                for (let dir = 1; dir < 9; dir ++) { // skip stationary parts
                     // use micro vel to get offsets
                     setG(
                         i, j, dir,
@@ -378,27 +380,27 @@ function render() {
             for (let i = 1; i < widthImg - 1; i ++) {
                 let uX   = 0;
                 let uY   = 0;
-                let allP = 0;
+                let allF = 0;
                 
                 for (let dir = 0; dir < 9; dir ++) {
                     uX   += getF(i, j, dir) * getVelX(dir);
                     uY   += getF(i, j, dir) * getVelY(dir);
-                    allP += getF(i, j, dir);
+                    allF += getF(i, j, dir);
                 }
                 
                 // r dx dt^-1 -> dx dt^-1
-                uX /= allP;
-                uY /= allP;
+                uX /= allF;
+                uY /= allF;
                 
                 // temp stability aid
-                let scaleP = Math.max(Math.min(allP, 1 + deltaF), 1 - deltaF) / allP;
+                let scaleP = Math.max(Math.min(allF, 1 + deltaF), 1 - deltaF) / allF;
                 
                 // bgk approx
                 for (let dir = 0; dir < 9; dir ++) {
                     setG(
                         i, j, dir,
                         scaleP * (
-                            getF(i, j, dir) + (allP * getEq(dir, uX, uY) - getF(i, j, dir)) * invTau
+                            getF(i, j, dir) + (allF * getEq(dir, uX, uY) - getF(i, j, dir)) * invTau
                         )
                     );
                 }
