@@ -12,25 +12,24 @@ const heightGrid = 200; // dx
 const scaleGrid  = 1;   // m
 const scaleCell  = scaleGrid / widthGrid;
 
-// time step
-let lbmDeltaT = 0.0029; // s, increasing lowers c
-
-// kinematic viscosity
-let actNu = 0.000299;   // m^2 s^-1
+// sound speed and kinematic viscosity
+const actC  = 1;      // m   s^-1
+const actNu = 0.0003; // m^2 s^-1
 
 // absolute reference density
 // all other densities fractional values
-let actRho = 1;         // kg m^-3
+const actRho = 1; // kg m^-3
 
 /* case setup */
 
-// calculate speed of sound w lattice config, tau w kinematic viscosity
-const lbmC  = 1 / Math.sqrt(3);                          // dx   dt^-1, always same for lbm
-const actC  = scaleCell / lbmDeltaT * lbmC;              // m    s^-1, notice not just scale divided by time
-const lbmNu = actNu * lbmDeltaT / scaleCell / scaleCell; // dx^2 dt^-1
+// calculate lbm parameters
+const lbmC      = 1 / Math.sqrt(3);                          // dx   dt^-1, always same for lbm (notice not one cell per step)
+const lbmDeltaT = lbmC * scaleCell / actC;                   // s    dt^-1
+const lbmNu     = actNu * lbmDeltaT / scaleCell / scaleCell; // dx^2 dt^-1
 
-let tau     = lbmNu / (lbmC * lbmC * 1) + 0.5; // nu / (c * c * dt) + 0.5 -> no units
-let invTau  = 1 / tau;
+// calculate tau w kinematic viscosity
+const tau    = lbmNu / (lbmC * lbmC * 1) + 0.5; // nu / (c * c * dt) + 0.5 -> no units
+const invTau = 1 / tau;
 
 let windVel = 0.3; // mach
 let deltaF  = 0.1; // max deviation from 1
@@ -304,7 +303,7 @@ function toRGB(a) {
 // sim loop
 function render() {
     // timing
-    let t = 0.001 - Date.now();
+    let t = 0.001 * Date.now();
     if (t - tPrev > 1 / 30) {
         console.log('t: ' + lbmT);
     }
