@@ -13,8 +13,8 @@ const scaleGrid  = 1;   // m
 const scaleCell  = scaleGrid / widthGrid;
 
 // sound speed and kinematic viscosity
-const actC  = 1;      // m   s^-1
-const actNu = 0.0003; // m^2 s^-1
+const actC  = 1;          // m   s^-1
+const actNu = 0.0003 / 4; // m^2 s^-1
 
 // absolute reference density
 // all other densities fractional values
@@ -29,12 +29,14 @@ const lbmNu     = actNu * lbmDeltaT / scaleCell / scaleCell; // dx^2 dt^-1
 
 // calculate tau w kinematic viscosity
 const tau    = lbmNu / (lbmC * lbmC * 1) + 0.5; // nu / (c * c * dt) + 0.5 -> no units
-const invTau = 1 / tau;
+// const invTau = 1 / tau;
+const magic   = 1 / 6; // magggic
+const antiTau = 2 * magic / (2 * tau - 1) + 0.5;
 
 let windVel = 0.3; // mach
-let deltaF  = 0.1; // max deviation from 1
+let deltaF  = 0.15; // max deviation from 1
 
-// standard lbgk 
+// standard lbgk -> trt
 function applyColl(i, j) {
     let uX   = 0;
     let uY   = 0;
@@ -53,12 +55,29 @@ function applyColl(i, j) {
     // temp stability aid
     let scaleP = Math.max(Math.min(allF, 1 + deltaF), 1 - deltaF) / allF;
 
-    // bgk approx
+    // bgk approx -> trt
     for (let dir = 0; dir < 9; dir ++) {
-        setG(
+        /* setG(
             i, j, dir,
             scaleP * (
                 getF(i, j, dir) + (allF * getEq(dir, uX, uY) - getF(i, j, dir)) * invTau
+            )
+        ); */
+        let sym = 0.5 * (
+            getF(i, j, dir) + getF(i, j, getOppDir(dir))
+        );
+        let antiSym = 0.5 * (
+            getF(i, j, dir) - getF(i, j, getOppDir(dir))
+        );
+        let fEq    = allF * getEq(dir           , uX, uY);
+        let fEqOpp = allF * getEq(getOppDir(dir), uX, uY);
+        
+        let collVal = 1 / tau     * (0.5 * (fEq + fEqOpp) - sym    ) +
+                      1 / antiTau * (0.5 * (fEq - fEqOpp) - antiSym);
+        setG(
+            i, j, dir,
+            scaleP * (
+                getF(i, j, dir) + collVal
             )
         );
     }
@@ -114,6 +133,9 @@ const w = new Float32Array([
     -1, -1, 1 / 36,
      1, -1, 1 / 36
 ]);
+
+// conversion factor
+const velConv  = lbmDeltaT / scaleCell; // m s^-1 -> dx dt^-1
 
 // setup context and image for display
 let disp = document.getElementById('disp');
@@ -215,6 +237,7 @@ function isWall(i, j) {
 }
 function getOppDir(dir) {
     switch (dir) {
+        case 0: return 0;
         case 1: return 3;
         case 2: return 4;
         case 3: return 1;
@@ -230,13 +253,13 @@ function applyNoSlip(i, j) {
     // pull particles into center, flip vel
     // particles effectively bounced at boundary
     for (let dir = 1; dir < 9; dir ++) {
-        offsetX = getVelX(dir);
-        offsetY = getVelY(dir);
+        offX = i + getVelX(dir);
+        offY = j + getVelY(dir);
         
-        if (i + offsetX > -1 && i + offsetX < widthGrid &&
-            j + offsetY > -1 && j + offsetY < heightGrid) {
-            if (!isWall(i + offsetX, j + offsetY)) {
-                setF(i, j, dir, getF(i + offsetX, j + offsetY, getOppDir(dir)));
+        if (offX > -1 && offX < widthGrid &&
+            offY > -1 && offY < heightGrid) {
+            if (!isWall(offX, offY)) {
+                setF(i, j, dir, getF(offX, offY, getOppDir(dir)));
             }
         }
     }
@@ -245,19 +268,19 @@ function applyVel(i, j, uX, uY) { // u in m s^-1, f implied to be unitary
     // check through all non-wall neighbours and
     // pull particles into center, flip non-eq vel and add
     // particles also bounced at boundary
-    let cellX = uX / scaleCell * lbmDeltaT;
-    let cellY = uY / scaleCell * lbmDeltaT;
+    let cellX = uX * velConv;
+    let cellY = uY * velConv;
     
     for (let dir = 1; dir < 9; dir ++) {
-        offsetX = getVelX(dir);
-        offsetY = getVelY(dir);
+        offX = i + getVelX(dir);
+        offY = j + getVelY(dir);
         
-        if (i + offsetX > -1 && i + offsetX < widthGrid &&
-            j + offsetY > -1 && j + offsetY < heightGrid) {
-            if (!isWall(i + offsetX, j + offsetY)) {
+        if (offX > -1 && offX < widthGrid &&
+            offY > -1 && offY < heightGrid) {
+            if (!isWall(offX, offY)) {
                 setF(
                     i, j, dir,
-                    getF(i + offsetX, j + offsetY, getOppDir(dir)) - getEq(getOppDir(dir), cellX, cellY) +
+                    getF(offX, offY, getOppDir(dir)) - getEq(getOppDir(dir), cellX, cellY) +
                     getEq(dir, cellX, cellY)
                 );
             }
@@ -265,6 +288,7 @@ function applyVel(i, j, uX, uY) { // u in m s^-1, f implied to be unitary
     }
 }
 
+// colors
 function toRGB(a) {
     a = 1 - Math.min(1, Math.max(0, a));
 
@@ -358,7 +382,7 @@ function render() {
                         
                         a /= maxUPrev;
                     } else {
-                        a /= windVel * c;
+                        a /= windVel * lbmC;
                     }
                     
                     let col = toRGB(a);

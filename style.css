@@ -5,6 +5,10 @@ body {
 
 #disp {
     background-color: white;
-    /* image-rendering: pixelated; */
-    width: 70%;
+    image-rendering: pixelated;
+    
+    position: absolute;
+    right: 0;
+    top: 0;
+    width: 50%;
 }
